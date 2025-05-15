@@ -17,9 +17,26 @@ fn main() -> Result<()> {
         .open("output.asm")
         .unwrap();
 
-    let mut formatter = Formatter::new(input);
+    let formatter = LineFormatter::new(input);
 
-    let lines = formatter.format()?;
+    let mut lines = Vec::new();
+    for line in formatter {
+        let line = line?;
+        lines.push(line);
+    }
+
+    // Indent a comment-line if next line is indented
+    for i in 0..lines.len() - 1 {
+        let line = &lines[i];
+        let next = &lines[i + 1];
+
+        if line.payload.is_empty() && !line.comment.is_empty() {
+            if next.indent {
+                let line = &mut lines[i];
+                line.indent = true;
+            }
+        }
+    }
 
     for line in lines {
         match (!line.payload.is_empty(), !line.comment.is_empty()) {
@@ -192,54 +209,66 @@ impl Payload {
     }
 }
 
-struct Formatter {
+struct LineFormatter<'a> {
     input: &'static str,
+    tokens: Tokenizer<'a>,
 }
 
-impl Formatter {
+impl<'a> LineFormatter<'a> {
     pub fn new(input: &'static str) -> Self {
-        Self { input }
+        let tokens = Tokenizer::new(input);
+        Self { input, tokens }
     }
+}
 
-    pub fn format(&mut self) -> Result<Vec<LineParts>> {
-        let mut tokens = Tokenizer::new(self.input);
+impl<'a> Iterator for LineFormatter<'a> {
+    type Item = Result<LineParts>;
 
-        let mut lines = Vec::new();
+    fn next(&mut self) -> Option<Result<LineParts>> {
+        let mut payload = Payload::new();
+        let mut comment: Option<&str> = None;
 
-        'main: loop {
-            let mut payload = Payload::new();
-            let mut comment = String::new();
+        for i in 0.. {
+            let Some(token) = self.tokens.next() else {
+                if i == 0 {
+                    return None;
+                }
+                break;
+            };
 
-            loop {
-                let Some(token) = tokens.next() else {
-                    break 'main;
-                };
-                let token = token?;
-                let token_str = &self.input[token.span.offs()..token.span.end()];
+            let token = match token {
+                Ok(token) => token,
+                Err(error) => return Some(Err(error)),
+            };
 
-                match token.kind {
-                    TokenKind::Linebreak => break,
+            let token_str = &self.input[token.span.offs()..token.span.end()];
 
-                    TokenKind::Comment => {
-                        comment += token_str;
-                    }
+            match token.kind {
+                TokenKind::Linebreak => break,
 
-                    _ => {
-                        payload.write_token(token.kind, token_str);
-                    }
+                TokenKind::Comment => {
+                    assert!(comment.is_none(), "line with multiple comments");
+                    comment = Some(token_str);
+                }
+
+                _ => {
+                    payload.write_token(token.kind, token_str);
                 }
             }
-
-            let (indent, payload) = payload.finish();
-
-            lines.push(LineParts {
-                indent,
-                payload,
-                comment,
-            });
         }
 
-        Ok(lines)
+        let (indent, payload) = payload.finish();
+
+        assert!(
+            !indent || !payload.is_empty(),
+            "comment-line should not be indented yet",
+        );
+
+        Some(Ok(LineParts {
+            indent,
+            payload,
+            comment: comment.unwrap_or("").to_string(),
+        }))
     }
 }
 
