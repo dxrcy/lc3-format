@@ -30,15 +30,28 @@ fn main() -> Result<()> {
         let line = &lines[i];
         let next = &lines[i + 1];
 
-        if line.payload.is_empty() && !line.comment.is_empty() {
-            if next.indent {
-                let line = &mut lines[i];
-                line.indent = true;
+        match (!line.payload.is_empty(), !line.comment.is_empty()) {
+            (false, true) => {
+                if next.indent {
+                    let line = &mut lines[i];
+                    line.indent = true;
+                }
             }
+            (false, false) => {
+                // Remove double linebreaks
+                if next.payload.is_empty() && next.comment.is_empty() {
+                    let line = &mut lines[i];
+                    line.skip = true;
+                }
+            }
+            _ => {}
         }
     }
 
     for line in lines {
+        if line.skip {
+            continue;
+        }
         match (!line.payload.is_empty(), !line.comment.is_empty()) {
             (true, true) => {
                 if line.indent {
@@ -72,6 +85,7 @@ struct LineParts {
     indent: bool,
     payload: String,
     comment: String,
+    skip: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -268,6 +282,7 @@ impl<'a> Iterator for LineFormatter<'a> {
             indent,
             payload,
             comment: comment.unwrap_or("").to_string(),
+            skip: false,
         }))
     }
 }
