@@ -25,21 +25,21 @@ fn main() -> Result<()> {
         lines.push(line);
     }
 
-    // Indent a comment-line if next line is indented
     for i in 0..lines.len() - 1 {
         let line = &lines[i];
         let next = &lines[i + 1];
 
-        match (!line.payload.is_empty(), !line.comment.is_empty()) {
-            (false, true) => {
+        match line.content() {
+            LineContent::JustComment => {
+                // Indent a comment-line if next line is indented
                 if next.indent {
                     let line = &mut lines[i];
                     line.indent = true;
                 }
             }
-            (false, false) => {
+            LineContent::Empty => {
                 // Remove double linebreaks
-                if next.payload.is_empty() && next.comment.is_empty() {
+                if next.content().is_empty() {
                     let line = &mut lines[i];
                     line.skip = true;
                 }
@@ -52,26 +52,26 @@ fn main() -> Result<()> {
         if line.skip {
             continue;
         }
-        match (!line.payload.is_empty(), !line.comment.is_empty()) {
-            (true, true) => {
+        match line.content() {
+            LineContent::PayloadAndComment => {
                 if line.indent {
                     write!(&mut output, "    ")?;
                 }
                 writeln!(&mut output, "{} {}", line.payload, line.comment)?;
             }
-            (true, false) => {
+            LineContent::JustPayload => {
                 if line.indent {
                     write!(&mut output, "    ")?;
                 }
                 writeln!(&mut output, "{}", line.payload)?;
             }
-            (false, true) => {
+            LineContent::JustComment => {
                 if line.indent {
                     write!(&mut output, "    ")?;
                 }
                 writeln!(&mut output, "{}", line.comment)?;
             }
-            (false, false) => {
+            LineContent::Empty => {
                 writeln!(&mut output)?;
             }
         }
@@ -104,6 +104,31 @@ struct Payload {
     string: String,
     previous: PreviousToken,
     indent: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum LineContent {
+    Empty,
+    JustPayload,
+    JustComment,
+    PayloadAndComment,
+}
+
+impl LineParts {
+    pub fn content(&self) -> LineContent {
+        match (self.payload.is_empty(), self.comment.is_empty()) {
+            (true, true) => LineContent::Empty,
+            (false, true) => LineContent::JustPayload,
+            (true, false) => LineContent::JustComment,
+            (false, false) => LineContent::PayloadAndComment,
+        }
+    }
+}
+
+impl LineContent {
+    pub fn is_empty(&self) -> bool {
+        matches!(self, Self::Empty)
+    }
 }
 
 impl Payload {
